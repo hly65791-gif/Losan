@@ -22,14 +22,14 @@ jobs:
         run: |
           set -e
 
-          ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 3 -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: Lisan ZIP not found"
             exit 1
           fi
 
-          echo "Found: $ZIP_FILE"
+          echo "Found ZIP: $ZIP_FILE"
           echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
 
       - name: Extract Lisan
@@ -41,11 +41,9 @@ jobs:
 
           unzip -q "$ZIP_FILE" -d lisan-project
 
-          echo "Extracted project:"
-          find lisan-project -maxdepth 3 -type f \
-            \( -name "gradlew" \
-            -o -name "settings.gradle.kts" \
-            -o -name "build.gradle.kts" \) \
+          echo "Searching for Gradle project..."
+          find lisan-project -type f \
+            \( -name "gradlew" -o -name "settings.gradle.kts" \) \
             -print
 
       - name: Locate Gradle project
@@ -82,7 +80,7 @@ jobs:
             exit 1
           fi
 
-          echo "Using sdkmanager: $SDKMANAGER"
+          echo "Using: $SDKMANAGER"
 
           yes | "$SDKMANAGER" --licenses > /dev/null || true
 
@@ -99,10 +97,9 @@ jobs:
 
           chmod +x gradlew
 
-          echo "Gradle wrapper:"
           ./gradlew --version
 
-      - name: Build Debug APK
+      - name: Build Lisan APK
         run: |
           set -e
 
@@ -112,7 +109,7 @@ jobs:
             --no-daemon \
             --stacktrace
 
-      - name: Validate APK
+      - name: Find APK
         run: |
           set -e
 
@@ -126,14 +123,13 @@ jobs:
           fi
 
           echo "======================================"
-          echo "LISAN APK BUILD SUCCESS"
+          echo "LISAN APK CREATED SUCCESSFULLY"
           echo "======================================"
 
-          file "$APK"
           ls -lh "$APK"
           sha256sum "$APK"
 
-      - name: Upload Lisan APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Lisan-Debug-APK
