@@ -1,81 +1,133 @@
-name: Lisan Android Build
+name: Build Lisan APK & AAB
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build Lisan
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK
+      - name: Install Android SDK components
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
-      - name: Find Lisan project
+      - name: Check Android project
         run: |
-          set -e
-          ZIP=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
+          echo "=== Project root ==="
+          pwd
+          ls -la
 
-          if [ -z "$ZIP" ]; then
-            echo "❌ لم يتم العثور على ملف ZIP"
+          echo "=== Gradle files ==="
+          find . -maxdepth 3 \
+            \( -name "settings.gradle" \
+            -o -name "settings.gradle.kts" \
+            -o -name "build.gradle" \
+            -o -name "build.gradle.kts" \
+            -o -name "gradlew" \) \
+            -print
+
+      - name: Verify Gradle Wrapper
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            echo "❌ gradlew غير موجود في جذر المشروع"
             exit 1
           fi
 
-          echo "📦 ZIP: $ZIP"
+          chmod +x ./gradlew
+          ./gradlew --version
 
-          rm -rf extracted
-          mkdir extracted
-          unzip -q "$ZIP" -d extracted
+      - name: Run tests
+        run: |
+          ./gradlew test --stacktrace --no-daemon
 
-          GRADLEW=$(find extracted -type f -name "gradlew" | head -n 1)
+      - name: Build Debug APK
+        run: |
+          ./gradlew :app:assembleDebug \
+            --stacktrace \
+            --no-daemon
 
-          if [ -z "$GRADLEW" ]; then
-            echo "❌ لم يتم العثور على Gradle Wrapper"
+      - name: Build Release APK
+        run: |
+          ./gradlew :app:assembleRelease \
+            --stacktrace \
+            --no-daemon
+
+      - name: Build Release AAB
+        run: |
+          ./gradlew :app:bundleRelease \
+            --stacktrace \
+            --no-daemon
+
+      - name: Validate outputs
+        run: |
+          echo "================ APK ================"
+          find . -type f -name "*.apk" -print
+
+          echo "================ AAB ================"
+          find . -type f -name "*.aab" -print
+
+          DEBUG_APK=$(find app/build/outputs/apk -type f -name "*debug*.apk" | head -n 1)
+
+          if [ -z "$DEBUG_APK" ]; then
+            echo "❌ Debug APK was not generated"
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$GRADLEW")
+          echo "✅ Debug APK:"
+          file "$DEBUG_APK"
+          ls -lh "$DEBUG_APK"
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Prepare Gradle
-        run: |
-          cd "$PROJECT_DIR"
-          chmod +x gradlew
-
-      - name: Build Lisan APK
-        run: |
-          cd "$PROJECT_DIR"
-          ./gradlew :app:assembleDebug --stacktrace
-
-      - name: Find APK
-        run: |
-          APK=$(find "$PROJECT_DIR" -type f -name "*.apk" | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "❌ لم يتم إنشاء APK"
-            exit 1
-          fi
-
-          echo "APK=$APK" >> "$GITHUB_ENV"
-          echo "✅ APK found: $APK"
-
-      - name: Upload APK
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Lisan-APK
-          path: ${{ env.APK }}
+          name: Lisan-Debug-APK
+          path: |
+            app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lisan-Release-APK
+          path: |
+            app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
+
+      - name: Upload Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lisan-Release-AAB
+          path: |
+            app/build/outputs/bundle/release/*.aab
+          if-no-files-found: warn
+
+      - name: Upload build reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lisan-Build-Reports
+          path: |
+            **/build/reports/**
+          if-no-files-found: warn
